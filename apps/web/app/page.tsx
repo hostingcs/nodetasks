@@ -30,24 +30,57 @@ async function getLatestRelease(): Promise<Release | null> {
   }
 }
 
+async function getTotalDownloads(): Promise<number | null> {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100`,
+      {
+        next: { revalidate: 300 },
+        headers: { Accept: "application/vnd.github+json" },
+      }
+    );
+    if (!res.ok) return null;
+    const releases = (await res.json()) as Array<{
+      assets?: Array<{ name: string; download_count: number }>;
+    }>;
+    let total = 0;
+    for (const r of releases) {
+      for (const a of r.assets ?? []) {
+        if (a.name.endsWith(".exe")) total += a.download_count;
+      }
+    }
+    return total;
+  } catch {
+    return null;
+  }
+}
+
 function formatBytes(n?: number) {
   if (!n) return null;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function formatCount(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+  return `${(n / 1_000_000).toFixed(1)}m`;
+}
+
 export default async function Home() {
-  const release = await getLatestRelease();
+  const [release, totalDownloads] = await Promise.all([
+    getLatestRelease(),
+    getTotalDownloads(),
+  ]);
   const exe = release?.assets?.find((a) => a.name.endsWith(".exe"));
-  const downloadUrl =
-    exe?.browser_download_url ??
-    `https://github.com/${GITHUB_REPO}/releases/latest`;
   const version = release?.tag_name?.replace(/^v/, "") ?? null;
   const size = formatBytes(exe?.size);
+  const hasRelease = !!exe;
 
   return (
     <div className="flex-1 flex flex-col">
-      <header className="border-b border-[color:var(--border)]">
+      <header>
         <div className="mx-auto max-w-5xl w-full px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <LogoMark />
@@ -93,7 +126,7 @@ export default async function Home() {
 
             <div className="mt-9 flex flex-wrap items-center gap-3">
               <a
-                href={downloadUrl}
+                href={hasRelease ? "/api/download" : `https://github.com/${GITHUB_REPO}/releases/latest`}
                 className="inline-flex items-center gap-2 rounded-md bg-[color:var(--accent)] text-[#04121f] px-5 py-2.5 text-sm font-semibold hover:brightness-110 transition"
               >
                 <DownloadIcon />
@@ -110,10 +143,23 @@ export default async function Home() {
               </a>
             </div>
 
-            <p className="mt-4 text-xs text-[color:var(--muted)] font-mono">
-              {version ? `v${version}` : "No release yet"}
-              {size ? ` · ${size}` : ""}
-              {" · Windows 10/11"}
+            <p className="mt-4 text-xs text-[color:var(--muted)] font-mono flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>{version ? `v${version}` : "No release yet"}</span>
+              {size ? <span aria-hidden>·</span> : null}
+              {size ? <span>{size}</span> : null}
+              <span aria-hidden>·</span>
+              <span>Windows 10/11</span>
+              {totalDownloads !== null && totalDownloads > 0 ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span className="text-[color:var(--foreground)]">
+                    <span className="tabular-nums">
+                      {formatCount(totalDownloads)}
+                    </span>{" "}
+                    <span className="text-[color:var(--muted)]">downloads</span>
+                  </span>
+                </>
+              ) : null}
             </p>
           </div>
 
@@ -135,18 +181,6 @@ export default async function Home() {
           />
         </section>
 
-        <section className="mt-24">
-          <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] p-8 sm:p-10">
-            <h2 className="text-xl font-semibold tracking-tight">
-              Auto-updates
-            </h2>
-            <p className="mt-2 text-sm text-[color:var(--muted)] leading-relaxed max-w-2xl">
-              NodeTasks checks for new versions on launch. Most updates install
-              silently and take effect on the next restart. You&apos;ll only be
-              asked to re-download when the native runtime itself changes.
-            </p>
-          </div>
-        </section>
       </main>
 
       <footer className="border-t border-[color:var(--border)] mt-12">

@@ -16,7 +16,7 @@ export default async function AdminLayout({
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="border-b border-[color:var(--border)]">
+      <header>
         <div className="mx-auto max-w-6xl w-full px-6 h-14 flex items-center justify-between">
           <Link href="/admin" className="flex items-center gap-2.5">
             <span className="inline-block w-5 h-5 rounded-[5px] bg-[color:var(--accent)] grid place-items-center text-[11px] font-bold text-[#04121f]">

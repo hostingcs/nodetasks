@@ -31,3 +31,11 @@ body {
 ::selection {
   background: rgba(77, 166, 255, 0.25);
 }
+
+button,
+[role="button"] {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}

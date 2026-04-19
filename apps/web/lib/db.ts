@@ -36,5 +36,20 @@ export async function ensureSchema(): Promise<void> {
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_events_path ON events(path)`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS downloads (
+      id BIGSERIAL PRIMARY KEY,
+      ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      version TEXT,
+      asset TEXT,
+      referrer TEXT,
+      user_agent TEXT,
+      country TEXT,
+      ip_hash TEXT
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_downloads_ts ON downloads(ts DESC)`;
+
   globalThis.__nt_schemaReady = true;
 }
