@@ -80,9 +80,35 @@ jobs:
 
       - name: Build portable ZIP
         shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
+          # Stage into a NodeTasks/ subfolder so Windows "Extract All" produces
+          # a clearly-named directory. If we leave both files at the zip root,
+          # double-clicking NodeTasks.exe inside Explorer's zip viewer extracts
+          # only that file to temp, leaving resources.neu behind — which lands
+          # the user on Neutralino's default welcome page.
           cd apps/desktop/dist/NodeTasks
-          zip -j NodeTasks-portable.zip NodeTasks.exe resources.neu
+          rm -rf stage
+          mkdir -p stage/NodeTasks
+          cp NodeTasks.exe resources.neu stage/NodeTasks/
+          cat > stage/NodeTasks/README.txt <<EOF
+          NodeTasks $VERSION — portable distribution
+
+          EXTRACT THIS FOLDER BEFORE RUNNING.
+
+          Double-clicking NodeTasks.exe from inside a ZIP will not work —
+          NodeTasks.exe needs resources.neu in the same folder.
+
+          1. Right-click the ZIP and choose "Extract All..."
+          2. Open the extracted NodeTasks folder
+          3. Double-click NodeTasks.exe
+
+          Website: https://nodetasks.com
+          Repo:    https://github.com/hostingcs/nodetasks
+          License: MIT
+          EOF
+          ( cd stage && zip -r ../NodeTasks-portable.zip NodeTasks/ )
           ls -la NodeTasks-portable.zip
 
       - name: Collect artifacts
