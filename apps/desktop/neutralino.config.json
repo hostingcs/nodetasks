@@ -14,7 +14,7 @@
     "writeToLogFile": false
   },
   "globalVariables": {
-    "UPDATE_MANIFEST_URL": "https://CHANGE-ME.up.railway.app/updates/manifest.json"
+    "UPDATE_MANIFEST_URL": "https://nodetasks.com/updates/manifest.json"
   },
   "nativeAllowList": [
     "app.*",

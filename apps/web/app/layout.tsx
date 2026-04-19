@@ -13,9 +13,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://nodetasks.com"),
   title: "NodeTasks — Node.js process monitor for Windows",
   description:
     "A tiny, native Windows app that shows every running Node.js process, live CPU and memory, and lets you kill them all with one click.",
+  openGraph: {
+    title: "NodeTasks",
+    description:
+      "A tiny, native Windows app for monitoring Node.js processes.",
+    url: "https://nodetasks.com",
+    siteName: "NodeTasks",
+    type: "website",
+  },
 };
 
 export default function RootLayout({
