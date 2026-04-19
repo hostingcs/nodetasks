@@ -174,8 +174,42 @@ async function killAll() {
   await poll();
 }
 
-function onWindowClose() {
-  Neutralino.app.exit();
+async function onWindowClose() {
+  try {
+    await Neutralino.window.hide();
+  } catch (e) {
+    console.error('hide failed', e);
+    Neutralino.app.exit();
+  }
+}
+
+async function setupTray() {
+  try {
+    await Neutralino.os.setTray({
+      icon: '/resources/icons/trayIcon.png',
+      menuItems: [
+        { id: 'SHOW', text: 'Show NodeTasks' },
+        { id: 'SEP', text: '-' },
+        { id: 'QUIT', text: 'Quit' },
+      ],
+    });
+  } catch (e) {
+    console.error('setTray failed', e);
+  }
+}
+
+async function onTrayMenuItemClicked(event) {
+  switch (event.detail.id) {
+    case 'SHOW':
+      await Neutralino.window.show();
+      try {
+        await Neutralino.window.focus();
+      } catch {}
+      break;
+    case 'QUIT':
+      Neutralino.app.exit();
+      break;
+  }
 }
 
 function compareVersions(a, b) {
@@ -223,8 +257,11 @@ async function checkForUpdate() {
 async function start() {
   Neutralino.init();
   Neutralino.events.on('windowClose', onWindowClose);
+  Neutralino.events.on('trayMenuItemClicked', onTrayMenuItemClicked);
 
   document.getElementById('kill-all').addEventListener('click', killAll);
+
+  setupTray();
 
   await detectCores();
   await poll();

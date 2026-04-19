@@ -12,9 +12,15 @@
     "desktop:update-bin": "npm run update-bin --workspace=apps/desktop",
     "web:dev": "npm run dev --workspace=apps/web",
     "web:build": "npm run build --workspace=apps/web",
-    "web:start": "npm run start --workspace=apps/web"
+    "web:start": "npm run start --workspace=apps/web",
+    "generate:icons": "node scripts/generate-icons.mjs"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "png-to-ico": "^3.0.1",
+    "resedit": "^3.0.2",
+    "sharp": "^0.34.5"
   }
 }

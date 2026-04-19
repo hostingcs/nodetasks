@@ -22,6 +22,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies (root + workspaces)
+        run: npm ci --ignore-scripts=false
 
       - name: Resolve version
         id: version
@@ -49,6 +53,11 @@ jobs:
       - name: Build release
         working-directory: apps/desktop
         run: npx --yes @neutralinojs/neu build --release
+
+      - name: Embed icon + version info into .exe
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/embed-exe-icon.mjs
 
       - name: Collect artifacts
         shell: bash
