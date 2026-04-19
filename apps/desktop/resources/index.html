@@ -57,6 +57,16 @@
       </footer>
     </div>
 
+    <div id="row-menu" class="ctx-menu" hidden role="menu">
+      <button class="ctx-item" data-action="kill" role="menuitem">
+        <span>Kill this process</span>
+        <span class="ctx-meta" id="ctx-pid"></span>
+      </button>
+      <button class="ctx-item" data-action="open-folder" role="menuitem">
+        Open folder location
+      </button>
+    </div>
+
     <div id="settings-modal" class="modal" hidden aria-hidden="true">
       <div class="modal-backdrop" data-close></div>
       <div class="modal-card" role="dialog" aria-labelledby="settings-title" aria-modal="true">

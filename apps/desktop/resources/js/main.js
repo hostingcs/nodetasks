@@ -133,14 +133,20 @@ function render(processes) {
     return b.mem - a.mem;
   });
 
-  list.innerHTML = rows.map(r => `
-    <div class="row">
+  list.innerHTML = rows
+    .map(
+      (r) => `
+    <div class="row" data-pid="${r.pid}" data-cmd="${escapeHtml(
+      rawCommandFor(r.pid, processes)
+    )}">
       <div class="col-pid">${r.pid}</div>
       <div class="col-cpu">${r.cpuPct === null ? '—' : r.cpuPct.toFixed(1) + '%'}</div>
       <div class="col-mem">${formatBytes(r.mem)}</div>
       <div class="col-cmd" title="${escapeHtml(r.cmd)}">${escapeHtml(r.cmd)}</div>
     </div>
-  `).join('');
+  `
+    )
+    .join('');
 
   empty.classList.toggle('show', rows.length === 0);
   statCount.textContent = rows.length;
@@ -148,7 +154,135 @@ function render(processes) {
   statMem.textContent = formatBytes(totalMem);
   killBtn.disabled = rows.length === 0;
 
-  status.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+  status.textContent = typeof NL_APPVERSION === 'string' ? 'v' + NL_APPVERSION : '';
+}
+
+function rawCommandFor(pid, processes) {
+  const p = processes.find((p) => p.ProcessId === pid);
+  return (p && p.CommandLine) || '';
+}
+
+function extractScriptPath(cmdLine) {
+  if (!cmdLine) return null;
+  let rest;
+  const m1 = cmdLine.match(/^"[^"]+"\s*(.*)$/);
+  if (m1) rest = m1[1];
+  else {
+    const m2 = cmdLine.match(/^\S+\s*(.*)$/);
+    if (!m2) return null;
+    rest = m2[1];
+  }
+  if (!rest) return null;
+  if (rest.startsWith('-')) return null;
+  const m3 = rest.match(/^"([^"]+)"/);
+  if (m3) return m3[1];
+  const m4 = rest.match(/^(\S+)/);
+  return m4 ? m4[1] : null;
+}
+
+function folderOf(filePath) {
+  if (!filePath) return null;
+  const idx = Math.max(filePath.lastIndexOf('\\'), filePath.lastIndexOf('/'));
+  if (idx < 0) return null;
+  return filePath.slice(0, idx);
+}
+
+const ctxState = { pid: null, cmd: '' };
+
+function positionContextMenu(menu, x, y) {
+  menu.hidden = false;
+  // Position off-screen to measure
+  menu.style.left = '-9999px';
+  menu.style.top = '-9999px';
+  const rect = menu.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const nx = Math.min(x, vw - rect.width - 4);
+  const ny = Math.min(y, vh - rect.height - 4);
+  menu.style.left = Math.max(4, nx) + 'px';
+  menu.style.top = Math.max(4, ny) + 'px';
+}
+
+function closeContextMenu() {
+  const menu = document.getElementById('row-menu');
+  if (menu) menu.hidden = true;
+  ctxState.pid = null;
+  ctxState.cmd = '';
+}
+
+async function killPid(pid) {
+  const script = `Stop-Process -Id ${pid} -Force -ErrorAction SilentlyContinue`;
+  try {
+    await Neutralino.os.execCommand(psCommand(script));
+  } catch (e) {
+    console.error('killPid failed', e);
+  }
+  prevSamples.delete(pid);
+  await poll();
+}
+
+async function openProcessFolder(cmd) {
+  const script = extractScriptPath(cmd);
+  const folder = folderOf(script);
+  if (!folder) return;
+  try {
+    await Neutralino.os.open(folder);
+  } catch (e) {
+    console.error('openProcessFolder failed', e);
+  }
+}
+
+function wireContextMenu() {
+  const list = document.getElementById('process-list');
+  const menu = document.getElementById('row-menu');
+  const pidLabel = document.getElementById('ctx-pid');
+  if (!list || !menu) return;
+
+  list.addEventListener('contextmenu', (e) => {
+    const el = /** @type {HTMLElement} */ (e.target);
+    const row = el && el.closest ? el.closest('.row') : null;
+    if (!row) return;
+    e.preventDefault();
+    const pid = parseInt(row.getAttribute('data-pid') || '0', 10);
+    const cmd = row.getAttribute('data-cmd') || '';
+    if (!pid) return;
+    ctxState.pid = pid;
+    ctxState.cmd = cmd;
+    if (pidLabel) pidLabel.textContent = 'PID ' + pid;
+
+    const openFolderBtn = menu.querySelector('[data-action="open-folder"]');
+    if (openFolderBtn) {
+      const hasFolder = !!folderOf(extractScriptPath(cmd));
+      openFolderBtn.disabled = !hasFolder;
+    }
+
+    positionContextMenu(menu, e.clientX, e.clientY);
+  });
+
+  menu.addEventListener('click', async (e) => {
+    const el = /** @type {HTMLElement} */ (e.target);
+    const btn = el && el.closest ? el.closest('.ctx-item') : null;
+    if (!btn || btn.disabled) return;
+    const action = btn.getAttribute('data-action');
+    const { pid, cmd } = ctxState;
+    closeContextMenu();
+    if (action === 'kill' && pid) {
+      await killPid(pid);
+    } else if (action === 'open-folder') {
+      await openProcessFolder(cmd);
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (menu.hidden) return;
+    const el = /** @type {HTMLElement} */ (e.target);
+    if (el && el.closest && el.closest('#row-menu')) return;
+    closeContextMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeContextMenu();
+  });
+  window.addEventListener('blur', closeContextMenu);
 }
 
 async function poll() {
@@ -333,12 +467,12 @@ function compareVersions(a, b) {
   return a3 - b3;
 }
 
-function showUpdateBanner(version) {
+function showUpdateBanner(version, swapped) {
   const banner = document.getElementById('update-banner');
   const versionEl = document.getElementById('update-version');
   const btn = document.getElementById('update-restart');
   if (!banner) return;
-  versionEl.textContent = 'v' + version;
+  versionEl.textContent = 'v' + version + (swapped ? '' : ' ready');
   banner.hidden = false;
   btn.addEventListener('click', async () => {
     btn.disabled = true;
@@ -354,16 +488,71 @@ function showUpdateBanner(version) {
 async function checkForUpdate() {
   const url = typeof NL_UPDATE_MANIFEST_URL === 'string' ? NL_UPDATE_MANIFEST_URL : '';
   if (!url || url.includes('CHANGE-ME')) return;
+
+  let manifest;
   try {
-    const manifest = await Neutralino.updater.checkForUpdates(url);
-    if (!manifest || !manifest.version) return;
-    if (compareVersions(manifest.version, NL_APPVERSION) <= 0) return;
-    await Neutralino.updater.install();
-    showUpdateBanner(manifest.version);
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) return;
+    manifest = await r.json();
   } catch (e) {
-    // Silent — offline, no release yet, etc.
-    console.warn('update check failed', e);
+    console.warn('manifest fetch failed', e);
+    return;
   }
+
+  if (!manifest || typeof manifest.version !== 'string') return;
+  if (manifest.applicationId && manifest.applicationId !== NL_APPID) return;
+  if (compareVersions(manifest.version, NL_APPVERSION) <= 0) return;
+  if (!manifest.resourcesURL) return;
+
+  let bytes;
+  try {
+    const r = await fetch(manifest.resourcesURL, { cache: 'no-store' });
+    if (!r.ok) return;
+    bytes = new Uint8Array(await r.arrayBuffer());
+  } catch (e) {
+    console.warn('resources download failed', e);
+    return;
+  }
+
+  const target = `${String(NL_PATH).replace(/[\\/]+$/, '')}\\resources.neu`;
+  const pending = target + '.new';
+
+  try {
+    await Neutralino.filesystem.writeBinaryFile(pending, bytes.buffer);
+  } catch (e) {
+    console.warn('writeBinaryFile pending failed', e);
+    return;
+  }
+
+  // Swap the pending file over resources.neu. On Windows we can't rewrite the
+  // live resources.neu while Neutralino has it open, so we try writing directly
+  // first, then fall back to a PowerShell swap at shutdown.
+  let swapped = false;
+  try {
+    await Neutralino.filesystem.writeBinaryFile(target, bytes.buffer);
+    await Neutralino.filesystem.removeFile(pending).catch(() => {});
+    swapped = true;
+  } catch (_) {
+    // Schedule a swap on exit
+    scheduleUpdateSwap(target, pending);
+  }
+
+  showUpdateBanner(manifest.version, swapped);
+}
+
+function scheduleUpdateSwap(target, pending) {
+  // Run a short PowerShell one-liner that waits for our process to exit, then
+  // moves the pending file into place. Fires on window close / app exit.
+  window.addEventListener('beforeunload', () => {
+    try {
+      const script = `
+        Start-Sleep -Milliseconds 400
+        Move-Item -Force -Path '${pending.replace(/'/g, "''")}' -Destination '${target.replace(/'/g, "''")}'
+      `.trim();
+      const cmd = `powershell -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ${encodePsCommand(script)}`;
+      Neutralino.os.spawnProcess(cmd).catch(() => {});
+    } catch {}
+  }, { once: true });
 }
 
 async function start() {
@@ -382,6 +571,7 @@ async function start() {
 
   document.getElementById('kill-all').addEventListener('click', killAll);
   wireSettingsModal();
+  wireContextMenu();
 
   autostartEnabled = await readAutostartState();
   syncAutostartUi();

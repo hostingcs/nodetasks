@@ -104,3 +104,30 @@ jobs:
             release/NodeTasks-Setup.exe
             release/NodeTasks-portable.zip
             release/resources.neu
+
+      - name: Publish updater manifest on main
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Drop uncommitted changes from the version-sync step so we only push
+          # the manifest update back to main.
+          git checkout -- .
+          git fetch origin main
+          git checkout main
+          git pull --ff-only
+          cat > manifest.json <<EOF
+          {
+            "applicationId": "app.nodetasks.monitor",
+            "version": "$VERSION",
+            "resourcesURL": "https://github.com/hostingcs/nodetasks/releases/download/v$VERSION/resources.neu"
+          }
+          EOF
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add manifest.json
+          if git diff --staged --quiet; then
+            echo "manifest already up-to-date"
+          else
+            git commit -m "chore: update manifest to v$VERSION"
+            git push origin main
+          fi
