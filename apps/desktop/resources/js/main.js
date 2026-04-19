@@ -258,15 +258,70 @@ async function writeAutostart(enabled) {
   await Neutralino.os.execCommand(psCommand(script));
 }
 
-async function toggleAutostart() {
-  const next = !autostartEnabled;
+async function setAutostart(enabled) {
   try {
-    await writeAutostart(next);
-    autostartEnabled = next;
+    await writeAutostart(enabled);
+    autostartEnabled = enabled;
   } catch (e) {
-    console.error('toggleAutostart failed', e);
+    console.error('setAutostart failed', e);
   }
+  syncAutostartUi();
   await setupTray();
+}
+
+async function toggleAutostart() {
+  await setAutostart(!autostartEnabled);
+}
+
+function syncAutostartUi() {
+  const cb = document.getElementById('setting-autostart');
+  if (cb) cb.checked = autostartEnabled;
+}
+
+function openSettings() {
+  const modal = document.getElementById('settings-modal');
+  if (!modal) return;
+  syncAutostartUi();
+  modal.hidden = false;
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeSettings() {
+  const modal = document.getElementById('settings-modal');
+  if (!modal) return;
+  modal.hidden = true;
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function wireSettingsModal() {
+  const modal = document.getElementById('settings-modal');
+  const openBtn = document.getElementById('open-settings');
+  const cb = document.getElementById('setting-autostart');
+  const versionEl = document.getElementById('modal-version');
+
+  if (openBtn) openBtn.addEventListener('click', openSettings);
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      const el = /** @type {HTMLElement} */ (e.target);
+      if (el && el.hasAttribute('data-close')) closeSettings();
+    });
+  }
+  if (cb) {
+    cb.addEventListener('change', async () => {
+      cb.disabled = true;
+      try {
+        await setAutostart(cb.checked);
+      } finally {
+        cb.disabled = false;
+      }
+    });
+  }
+  if (versionEl && typeof NL_APPVERSION === 'string') {
+    versionEl.textContent = 'v' + NL_APPVERSION;
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSettings();
+  });
 }
 
 function compareVersions(a, b) {
@@ -326,8 +381,10 @@ async function start() {
   }
 
   document.getElementById('kill-all').addEventListener('click', killAll);
+  wireSettingsModal();
 
   autostartEnabled = await readAutostartState();
+  syncAutostartUi();
   setupTray();
 
   await detectCores();
