@@ -185,7 +185,7 @@ export default async function Home() {
 
       </main>
 
-      <footer className="border-t border-[color:var(--border)] mt-12">
+      <footer className="mt-12">
         <div className="mx-auto max-w-5xl w-full px-6 py-6 flex items-center justify-between text-xs text-[color:var(--muted)]">
           <span>
             Open source ·{" "}
