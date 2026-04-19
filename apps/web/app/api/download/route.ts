@@ -28,12 +28,20 @@ async function fetchLatestExe(): Promise<{
     );
     if (!res.ok) return { url: FALLBACK_URL, version: null, asset: null };
     const release = (await res.json()) as Release;
-    const exe = release.assets?.find((a) => a.name.endsWith(".exe"));
-    if (!exe) return { url: FALLBACK_URL, version: null, asset: null };
+    const installer = release.assets?.find((a) =>
+      a.name.toLowerCase().endsWith("-setup.exe")
+    );
+    const portable = release.assets?.find(
+      (a) =>
+        a.name.toLowerCase().endsWith(".exe") &&
+        !a.name.toLowerCase().endsWith("-setup.exe")
+    );
+    const pick = installer ?? portable;
+    if (!pick) return { url: FALLBACK_URL, version: null, asset: null };
     return {
-      url: exe.browser_download_url,
+      url: pick.browser_download_url,
       version: release.tag_name?.replace(/^v/, "") ?? null,
-      asset: exe.name,
+      asset: pick.name,
     };
   } catch {
     return { url: FALLBACK_URL, version: null, asset: null };

@@ -16,10 +16,15 @@ Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force
 
 const PS_CORES_SCRIPT = `[Environment]::ProcessorCount`;
 
+const AUTOSTART_REG_KEY = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+const AUTOSTART_REG_NAME = "NodeTasks";
+const AUTOSTART_ARG = "--autostart";
+
 const prevSamples = new Map();
 let numCores = 1;
 let pollTimer = null;
 let pollInFlight = false;
+let autostartEnabled = false;
 
 function encodePsCommand(script) {
   const bytes = new Uint8Array(script.length * 2);
@@ -189,7 +194,13 @@ async function setupTray() {
       icon: '/resources/icons/trayIcon.png',
       menuItems: [
         { id: 'SHOW', text: 'Show NodeTasks' },
-        { id: 'SEP', text: '-' },
+        { id: 'SEP1', text: '-' },
+        {
+          id: 'AUTOSTART',
+          text: 'Start with Windows',
+          isChecked: autostartEnabled,
+        },
+        { id: 'SEP2', text: '-' },
         { id: 'QUIT', text: 'Quit' },
       ],
     });
@@ -206,10 +217,56 @@ async function onTrayMenuItemClicked(event) {
         await Neutralino.window.focus();
       } catch {}
       break;
+    case 'AUTOSTART':
+      await toggleAutostart();
+      break;
     case 'QUIT':
       Neutralino.app.exit();
       break;
   }
+}
+
+function exePath() {
+  const base = typeof NL_PATH === 'string' ? NL_PATH : '';
+  return `${base.replace(/[\\/]+$/, '')}\\NodeTasks.exe`;
+}
+
+async function readAutostartState() {
+  const script = `
+    $val = (Get-ItemProperty -Path '${AUTOSTART_REG_KEY}' -Name '${AUTOSTART_REG_NAME}' -ErrorAction SilentlyContinue).${AUTOSTART_REG_NAME}
+    if ($val) { 'yes' } else { 'no' }
+  `.trim();
+  try {
+    const r = await Neutralino.os.execCommand(psCommand(script));
+    return (r.stdOut || '').trim() === 'yes';
+  } catch (e) {
+    console.error('readAutostartState failed', e);
+    return false;
+  }
+}
+
+async function writeAutostart(enabled) {
+  const script = enabled
+    ? `
+        $exe = '${exePath().replace(/'/g, "''")}'
+        $cmd = '"' + $exe + '" ${AUTOSTART_ARG}'
+        New-ItemProperty -Path '${AUTOSTART_REG_KEY}' -Name '${AUTOSTART_REG_NAME}' -Value $cmd -PropertyType String -Force | Out-Null
+      `.trim()
+    : `
+        Remove-ItemProperty -Path '${AUTOSTART_REG_KEY}' -Name '${AUTOSTART_REG_NAME}' -ErrorAction SilentlyContinue
+      `.trim();
+  await Neutralino.os.execCommand(psCommand(script));
+}
+
+async function toggleAutostart() {
+  const next = !autostartEnabled;
+  try {
+    await writeAutostart(next);
+    autostartEnabled = next;
+  } catch (e) {
+    console.error('toggleAutostart failed', e);
+  }
+  await setupTray();
 }
 
 function compareVersions(a, b) {
@@ -259,8 +316,18 @@ async function start() {
   Neutralino.events.on('windowClose', onWindowClose);
   Neutralino.events.on('trayMenuItemClicked', onTrayMenuItemClicked);
 
+  const args = Array.isArray(NL_ARGS) ? NL_ARGS : [];
+  if (args.includes(AUTOSTART_ARG)) {
+    try {
+      await Neutralino.window.hide();
+    } catch (e) {
+      console.error('initial hide failed', e);
+    }
+  }
+
   document.getElementById('kill-all').addEventListener('click', killAll);
 
+  autostartEnabled = await readAutostartState();
   setupTray();
 
   await detectCores();
