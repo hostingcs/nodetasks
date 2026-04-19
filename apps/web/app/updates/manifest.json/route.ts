@@ -6,7 +6,8 @@ type Release = {
   assets?: Array<{ name: string; browser_download_url: string }>;
 };
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET() {
   let release: Release | null = null;
@@ -14,7 +15,7 @@ export async function GET() {
     const res = await fetch(
       `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
       {
-        next: { revalidate: 300 },
+        cache: "no-store",
         headers: { Accept: "application/vnd.github+json" },
       }
     );
@@ -28,6 +29,8 @@ export async function GET() {
     (a) => a.name === "resources.neu"
   );
 
+  const noStore = "no-store, no-cache, must-revalidate";
+
   if (!version || !resourcesAsset) {
     return Response.json(
       {
@@ -36,7 +39,7 @@ export async function GET() {
         resourcesURL: "",
         error: "No release available",
       },
-      { status: 200, headers: { "Cache-Control": "public, max-age=60" } }
+      { status: 200, headers: { "Cache-Control": noStore } }
     );
   }
 
@@ -46,10 +49,6 @@ export async function GET() {
       version,
       resourcesURL: resourcesAsset.browser_download_url,
     },
-    {
-      headers: {
-        "Cache-Control": "public, max-age=300, s-maxage=300",
-      },
-    }
+    { headers: { "Cache-Control": noStore } }
   );
 }
