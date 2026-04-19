@@ -166,6 +166,15 @@ export default async function Home() {
                 </>
               ) : null}
             </p>
+
+            <p className="mt-3 text-xs">
+              <Link
+                href="/download"
+                className="text-[color:var(--muted)] hover:text-[color:var(--foreground)] transition"
+              >
+                See all download options →
+              </Link>
+            </p>
           </div>
 
           <AppPreview />
@@ -190,21 +199,27 @@ export default async function Home() {
 
       <footer className="mt-12">
         <div className="mx-auto max-w-5xl w-full px-6 py-6 flex items-center justify-between text-xs text-[color:var(--muted)]">
-          <span>
-            Open source ·{" "}
+          <div className="flex items-center gap-4">
+            <Link
+              href="/download"
+              className="hover:text-[color:var(--foreground)] transition"
+            >
+              Download
+            </Link>
+            <Link
+              href="/privacy"
+              className="hover:text-[color:var(--foreground)] transition"
+            >
+              Privacy
+            </Link>
             <a
               className="hover:text-[color:var(--foreground)] transition"
               href={`https://github.com/${GITHUB_REPO}/blob/main/LICENSE`}
             >
               MIT
             </a>
-          </span>
-          <Link
-            href="/updates/manifest.json"
-            className="font-mono hover:text-[color:var(--foreground)] transition"
-          >
-            /updates/manifest.json
-          </Link>
+          </div>
+          <span>Code signing by SignPath Foundation</span>
         </div>
       </footer>
     </div>

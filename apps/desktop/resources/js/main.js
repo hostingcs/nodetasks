@@ -437,7 +437,7 @@ function wireSettingsModal() {
   if (modal) {
     modal.addEventListener('click', (e) => {
       const el = /** @type {HTMLElement} */ (e.target);
-      if (el && el.hasAttribute('data-close')) closeSettings();
+      if (el && el.closest && el.closest('[data-close]')) closeSettings();
     });
   }
   if (cb) {
