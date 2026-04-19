@@ -54,20 +54,12 @@ jobs:
         working-directory: apps/desktop
         run: npx --yes @neutralinojs/neu build --release
 
-      - name: Bundle resources.neu into standalone .exe
+      - name: Rename base exe for consistent naming
         shell: bash
         run: |
           cd apps/desktop/dist/NodeTasks
-          # Appending resources.neu as PE overlay makes the .exe standalone.
-          # Neutralino's loader prefers a sidecar resources.neu (which the
-          # auto-updater writes), otherwise falls back to the overlay bytes.
-          cat resources.neu >> NodeTasks-win_x64.exe
           mv NodeTasks-win_x64.exe NodeTasks.exe
           ls -la NodeTasks.exe resources.neu
-
-      # NOTE: Embedding a custom .exe file icon via resedit breaks Neutralino's
-      # overlay-based resource detection. Deferred until we move to a tool that
-      # preserves PE overlay bytes (e.g., rcedit on a Windows runner).
 
       - name: Install NSIS
         run: |
@@ -80,18 +72,26 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           cp apps/desktop/dist/NodeTasks/NodeTasks.exe installer/NodeTasks.exe
+          cp apps/desktop/dist/NodeTasks/resources.neu installer/resources.neu
           cp apps/desktop/resources/icons/icon.ico installer/icon.ico
           cd installer
           makensis -V2 -DVERSION="$VERSION" nodetasks.nsi
           ls -la NodeTasks-Setup.exe
 
+      - name: Build portable ZIP
+        shell: bash
+        run: |
+          cd apps/desktop/dist/NodeTasks
+          zip -j NodeTasks-portable.zip NodeTasks.exe resources.neu
+          ls -la NodeTasks-portable.zip
+
       - name: Collect artifacts
         shell: bash
         run: |
           mkdir -p release
-          cp apps/desktop/dist/NodeTasks/NodeTasks.exe release/
-          cp apps/desktop/dist/NodeTasks/resources.neu release/
           cp installer/NodeTasks-Setup.exe release/
+          cp apps/desktop/dist/NodeTasks/NodeTasks-portable.zip release/
+          cp apps/desktop/dist/NodeTasks/resources.neu release/
           ls -la release/
 
       - name: Publish GitHub Release
@@ -102,5 +102,5 @@ jobs:
           generate_release_notes: true
           files: |
             release/NodeTasks-Setup.exe
-            release/NodeTasks.exe
+            release/NodeTasks-portable.zip
             release/resources.neu

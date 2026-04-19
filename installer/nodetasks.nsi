@@ -49,7 +49,8 @@ VIAddVersionKey "OriginalFilename" "NodeTasks-Setup.exe"
 
 Section "Install"
   SetOutPath "$INSTDIR"
-  File /oname=${APP_EXE} "NodeTasks.exe"
+  File "NodeTasks.exe"
+  File "resources.neu"
 
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}"

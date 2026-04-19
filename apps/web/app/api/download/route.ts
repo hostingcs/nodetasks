@@ -31,12 +31,10 @@ async function fetchLatestExe(): Promise<{
     const installer = release.assets?.find((a) =>
       a.name.toLowerCase().endsWith("-setup.exe")
     );
-    const portable = release.assets?.find(
-      (a) =>
-        a.name.toLowerCase().endsWith(".exe") &&
-        !a.name.toLowerCase().endsWith("-setup.exe")
+    const portableZip = release.assets?.find((a) =>
+      a.name.toLowerCase().endsWith("-portable.zip")
     );
-    const pick = installer ?? portable;
+    const pick = installer ?? portableZip;
     if (!pick) return { url: FALLBACK_URL, version: null, asset: null };
     return {
       url: pick.browser_download_url,

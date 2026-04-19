@@ -48,7 +48,10 @@ async function getTotalDownloads(): Promise<number | null> {
     let total = 0;
     for (const r of releases) {
       for (const a of r.assets ?? []) {
-        if (a.name.endsWith(".exe")) total += a.download_count;
+        const n = a.name.toLowerCase();
+        if (n.endsWith("-setup.exe") || n.endsWith("-portable.zip")) {
+          total += a.download_count;
+        }
       }
     }
     return total;
