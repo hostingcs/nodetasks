@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+export const revalidate = 60;
+
 const GITHUB_REPO = "hostingcs/nodetasks";
 
 type Release = {
@@ -19,7 +21,7 @@ async function getLatestRelease(): Promise<Release | null> {
     const res = await fetch(
       `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
       {
-        next: { revalidate: 300 },
+        next: { revalidate: 60 },
         headers: { Accept: "application/vnd.github+json" },
       }
     );
@@ -35,7 +37,7 @@ async function getTotalDownloads(): Promise<number | null> {
     const res = await fetch(
       `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100`,
       {
-        next: { revalidate: 300 },
+        next: { revalidate: 60 },
         headers: { Accept: "application/vnd.github+json" },
       }
     );
