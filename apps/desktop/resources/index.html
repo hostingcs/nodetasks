@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>NodeTasks</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div id="app">
+      <div id="update-banner" class="update-banner" hidden>
+        <span>Update <span id="update-version">ready</span> installed</span>
+        <button id="update-restart" class="update-btn">Restart</button>
+      </div>
+
+      <header>
+        <h1>NodeTasks</h1>
+        <span class="subtitle">Node.js process monitor</span>
+      </header>
+
+      <section class="summary">
+        <div class="stat">
+          <span class="label">Processes</span>
+          <span class="value" id="stat-count">0</span>
+        </div>
+        <div class="stat">
+          <span class="label">Total CPU</span>
+          <span class="value" id="stat-cpu">—</span>
+        </div>
+        <div class="stat">
+          <span class="label">Total RAM</span>
+          <span class="value" id="stat-mem">0 B</span>
+        </div>
+      </section>
+
+      <section class="list-wrapper">
+        <div class="list-header">
+          <div>PID</div>
+          <div>CPU</div>
+          <div>Memory</div>
+          <div>Command</div>
+        </div>
+        <div id="process-list" class="list-body"></div>
+        <div id="empty-state" class="empty">No Node.js processes running</div>
+      </section>
+
+      <footer>
+        <span id="status" class="status">Starting…</span>
+        <button id="kill-all" class="danger" disabled>Kill All</button>
+      </footer>
+    </div>
+
+    <script src="/js/neutralino.js"></script>
+    <script src="/js/main.js"></script>
+  </body>
+</html>

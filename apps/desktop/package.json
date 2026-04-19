@@ -1,0 +1,14 @@
+{
+  "name": "@nodetasks/desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NodeTasks — Windows desktop monitor for Node.js processes",
+  "scripts": {
+    "run": "neu run",
+    "build": "neu build --release",
+    "update-bin": "neu update"
+  },
+  "devDependencies": {
+    "@neutralinojs/neu": "^11.0.0"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "nodetasks",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lightweight Windows monitor for Node.js processes",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "desktop:run": "npm run run --workspace=apps/desktop",
+    "desktop:build": "npm run build --workspace=apps/desktop",
+    "desktop:update-bin": "npm run update-bin --workspace=apps/desktop",
+    "web:dev": "npm run dev --workspace=apps/web",
+    "web:build": "npm run build --workspace=apps/web",
+    "web:start": "npm run start --workspace=apps/web"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
