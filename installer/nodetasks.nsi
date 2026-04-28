@@ -47,6 +47,24 @@ VIAddVersionKey "OriginalFilename" "NodeTasks-Setup.exe"
 
 !insertmacro MUI_LANGUAGE "English"
 
+; Force-close any running NodeTasks before we touch its files. taskkill /F /IM
+; with a non-existent image returns 128 — we ignore the exit code either way.
+; /T also kills the WebView2 child processes. Sleep gives the OS a beat to
+; release the file handles on the live exe and resources.neu.
+!macro CloseRunningInstance
+  nsExec::Exec 'taskkill /F /IM "${APP_EXE}" /T'
+  Pop $0
+  Sleep 600
+!macroend
+
+Function .onInit
+  !insertmacro CloseRunningInstance
+FunctionEnd
+
+Function un.onInit
+  !insertmacro CloseRunningInstance
+FunctionEnd
+
 Section "Install"
   SetOutPath "$INSTDIR"
   File "NodeTasks.exe"
