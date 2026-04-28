@@ -876,18 +876,34 @@ async function runCleanupDelete() {
   await runCleanupDeleteFor(getSelectedCleanupPaths());
 }
 
-function openCleanup() {
-  const modal = document.getElementById('cleanup-modal');
-  if (!modal) return;
-  modal.hidden = false;
-  modal.setAttribute('aria-hidden', 'false');
+const TAB_LABELS = {
+  processes: 'Node.js process monitor',
+  cleanup: 'Find and remove node_modules',
+};
+
+function activateTab(name) {
+  const tabs = document.querySelectorAll('.tab[data-tab]');
+  tabs.forEach((t) => {
+    const active = t.getAttribute('data-tab') === name;
+    t.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  const procPanel = document.getElementById('tab-processes');
+  const cleanPanel = document.getElementById('tab-cleanup');
+  if (procPanel) procPanel.hidden = name !== 'processes';
+  if (cleanPanel) cleanPanel.hidden = name !== 'cleanup';
+  const sub = document.getElementById('header-subtitle');
+  if (sub && TAB_LABELS[name]) sub.textContent = TAB_LABELS[name];
 }
 
-function closeCleanup() {
-  const modal = document.getElementById('cleanup-modal');
-  if (!modal) return;
-  modal.hidden = true;
-  modal.setAttribute('aria-hidden', 'true');
+function wireTabs() {
+  const tabs = document.querySelectorAll('.tab[data-tab]');
+  tabs.forEach((t) => {
+    t.addEventListener('click', () => {
+      const name = t.getAttribute('data-tab');
+      if (name) activateTab(name);
+    });
+  });
+  activateTab('processes');
 }
 
 function onCleanupListMouseDown(e) {
@@ -951,9 +967,7 @@ function onCleanupRecycleToggle(e) {
   updateCleanupDeleteBtn();
 }
 
-function wireCleanupModal() {
-  const modal = document.getElementById('cleanup-modal');
-  const openBtn = document.getElementById('open-cleanup');
+function wireCleanupTab() {
   const chooseBtn = document.getElementById('cleanup-choose');
   const rescanBtn = document.getElementById('cleanup-rescan');
   const deleteBtn = document.getElementById('cleanup-delete');
@@ -961,14 +975,6 @@ function wireCleanupModal() {
   const recycleCb = document.getElementById('cleanup-recycle');
   const list = document.getElementById('cleanup-list');
 
-  if (openBtn) openBtn.addEventListener('click', openCleanup);
-  if (modal) {
-    modal.addEventListener('click', (e) => {
-      const el = /** @type {HTMLElement} */ (e.target);
-      if (cleanupState.busy) return;
-      if (el && el.closest && el.closest('[data-close]')) closeCleanup();
-    });
-  }
   if (chooseBtn) chooseBtn.addEventListener('click', chooseCleanupFolder);
   if (rescanBtn) rescanBtn.addEventListener('click', runCleanupScan);
   if (deleteBtn) deleteBtn.addEventListener('click', runCleanupDelete);
@@ -981,10 +987,6 @@ function wireCleanupModal() {
     list.addEventListener('mousedown', onCleanupListMouseDown);
     list.addEventListener('click', onCleanupListClick);
   }
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !cleanupState.busy) closeCleanup();
-  });
   setCleanupFolder('');
 }
 
@@ -1105,7 +1107,8 @@ async function start() {
 
   document.getElementById('kill-all').addEventListener('click', killAll);
   wireSettingsModal();
-  wireCleanupModal();
+  wireTabs();
+  wireCleanupTab();
   wireContextMenu();
 
   autostartEnabled = await readAutostartState();

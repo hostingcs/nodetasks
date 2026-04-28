@@ -408,14 +408,46 @@ button.danger:disabled {
   gap: 4px;
 }
 
-.cleanup-card {
-  max-width: 520px;
+.tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid #2b2b30;
+  margin-top: -2px;
 }
-.cleanup-body {
-  padding: 12px 14px;
+.tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #7a7a82;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 10px 7px;
+  cursor: pointer;
+  margin-bottom: -1px;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.tab:hover {
+  color: #d8d8de;
+}
+.tab[aria-selected="true"] {
+  color: #e8e8ea;
+  border-bottom-color: #4da6ff;
+}
+
+.tab-panel {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
+}
+.tab-panel[hidden] {
+  display: none;
+}
+
+.cleanup-panel {
+  gap: 8px;
 }
 .cleanup-folder-row {
   display: flex;
@@ -499,9 +531,18 @@ button.danger:disabled {
   background: #25252a;
   border: 1px solid #303036;
   border-radius: 5px;
-  max-height: 260px;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
+.cleanup-results {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+.cleanup-results[hidden] { display: none; }
 .cleanup-row {
   display: grid;
   grid-template-columns: 22px 1fr 80px 22px;
@@ -620,6 +661,7 @@ button.danger:disabled {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
+  padding: 0 2px;
 }
 
 ::-webkit-scrollbar { width: 8px; }
