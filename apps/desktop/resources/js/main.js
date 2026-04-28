@@ -997,22 +997,48 @@ function compareVersions(a, b) {
   return a3 - b3;
 }
 
-function showUpdateBanner(version, swapped) {
+function showUpdateBanner(version, target, pending) {
   const banner = document.getElementById('update-banner');
   const versionEl = document.getElementById('update-version');
   const btn = document.getElementById('update-restart');
   if (!banner) return;
-  versionEl.textContent = 'v' + version + (swapped ? '' : ' ready');
+  versionEl.textContent = 'v' + version;
   banner.hidden = false;
   btn.addEventListener('click', async () => {
     btn.disabled = true;
-    btn.textContent = 'Restarting…';
-    try {
-      await Neutralino.app.restartProcess();
-    } catch (e) {
-      console.error('restart failed', e);
-    }
+    btn.textContent = 'Updating…';
+    await applyUpdateAndRestart(target, pending);
   });
+}
+
+function buildApplyUpdateScript(target, pending) {
+  const exePath = `${String(NL_PATH).replace(/[\\/]+$/, '')}\\NodeTasks.exe`;
+  return `
+$ErrorActionPreference = 'SilentlyContinue'
+$target = '${target.replace(/'/g, "''")}'
+$pending = '${pending.replace(/'/g, "''")}'
+$exe = '${exePath.replace(/'/g, "''")}'
+# Wait until we can open the live bundle for write — i.e. our parent has exited
+$deadline = (Get-Date).AddSeconds(15)
+while ((Get-Date) -lt $deadline) {
+  try {
+    $f = [System.IO.File]::Open($target, 'Open', 'ReadWrite', 'None')
+    $f.Close()
+    break
+  } catch { Start-Sleep -Milliseconds 200 }
+}
+Start-Sleep -Milliseconds 200
+Move-Item -Force -LiteralPath $pending -Destination $target
+Start-Process -FilePath $exe
+`.trim();
+}
+
+async function applyUpdateAndRestart(target, pending) {
+  // cmd /c start /B detaches powershell from this process so it survives our exit.
+  const encoded = encodePsCommand(buildApplyUpdateScript(target, pending));
+  const cmd = `cmd /c start "" /B powershell -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ${encoded}`;
+  try { await Neutralino.os.spawnProcess(cmd); } catch (e) { console.warn('spawn swap failed', e); }
+  try { await Neutralino.app.exit(); } catch {}
 }
 
 async function checkForUpdate() {
@@ -1034,55 +1060,33 @@ async function checkForUpdate() {
   if (compareVersions(manifest.version, NL_APPVERSION) <= 0) return;
   if (!manifest.resourcesURL) return;
 
-  let bytes;
+  const target = `${String(NL_PATH).replace(/[\\/]+$/, '')}\\resources.neu`;
+  const pending = target + '.new';
+
+  // Download via PowerShell (WebView2 fetch can't follow GitHub Releases redirects:
+  // the CDN final URL doesn't send Access-Control-Allow-Origin).
+  const dlScript = `
+    $ProgressPreference = 'SilentlyContinue'
+    $ErrorActionPreference = 'Stop'
+    try {
+      Invoke-WebRequest -Uri '${manifest.resourcesURL.replace(/'/g, "''")}' -OutFile '${pending.replace(/'/g, "''")}' -UseBasicParsing
+      'OK'
+    } catch { 'FAIL' }
+  `.trim();
   try {
-    const r = await fetch(manifest.resourcesURL, { cache: 'no-store' });
-    if (!r.ok) return;
-    bytes = new Uint8Array(await r.arrayBuffer());
+    const r = await Neutralino.os.execCommand(psCommand(dlScript));
+    if ((r.stdOut || '').trim() !== 'OK') {
+      console.warn('resources download failed', r.stdErr || r.stdOut);
+      return;
+    }
+    const stat = await Neutralino.filesystem.getStats(pending).catch(() => null);
+    if (!stat || stat.size < 1024) return;
   } catch (e) {
     console.warn('resources download failed', e);
     return;
   }
 
-  const target = `${String(NL_PATH).replace(/[\\/]+$/, '')}\\resources.neu`;
-  const pending = target + '.new';
-
-  try {
-    await Neutralino.filesystem.writeBinaryFile(pending, bytes.buffer);
-  } catch (e) {
-    console.warn('writeBinaryFile pending failed', e);
-    return;
-  }
-
-  // Swap the pending file over resources.neu. On Windows we can't rewrite the
-  // live resources.neu while Neutralino has it open, so we try writing directly
-  // first, then fall back to a PowerShell swap at shutdown.
-  let swapped = false;
-  try {
-    await Neutralino.filesystem.writeBinaryFile(target, bytes.buffer);
-    await Neutralino.filesystem.removeFile(pending).catch(() => {});
-    swapped = true;
-  } catch (_) {
-    // Schedule a swap on exit
-    scheduleUpdateSwap(target, pending);
-  }
-
-  showUpdateBanner(manifest.version, swapped);
-}
-
-function scheduleUpdateSwap(target, pending) {
-  // Run a short PowerShell one-liner that waits for our process to exit, then
-  // moves the pending file into place. Fires on window close / app exit.
-  window.addEventListener('beforeunload', () => {
-    try {
-      const script = `
-        Start-Sleep -Milliseconds 400
-        Move-Item -Force -Path '${pending.replace(/'/g, "''")}' -Destination '${target.replace(/'/g, "''")}'
-      `.trim();
-      const cmd = `powershell -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ${encodePsCommand(script)}`;
-      Neutralino.os.spawnProcess(cmd).catch(() => {});
-    } catch {}
-  }, { once: true });
+  showUpdateBanner(manifest.version, target, pending);
 }
 
 async function start() {
