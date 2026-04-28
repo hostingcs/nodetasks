@@ -17,12 +17,23 @@
           <h1>NodeTasks</h1>
           <span class="subtitle">Node.js process monitor</span>
         </div>
-        <button id="open-settings" class="icon-btn" aria-label="Settings" title="Settings">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path>
-          </svg>
-        </button>
+        <div class="header-actions">
+          <button id="open-cleanup" class="icon-btn" aria-label="Clean node_modules" title="Clean node_modules">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+              <path d="M10 11v6"></path>
+              <path d="M14 11v6"></path>
+              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+          <button id="open-settings" class="icon-btn" aria-label="Settings" title="Settings">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path>
+            </svg>
+          </button>
+        </div>
       </header>
 
       <section class="summary">
@@ -97,6 +108,56 @@
 
         <div class="modal-foot">
           <span class="modal-version" id="modal-version">v—</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="cleanup-modal" class="modal" hidden aria-hidden="true">
+      <div class="modal-backdrop" data-close></div>
+      <div class="modal-card cleanup-card" role="dialog" aria-labelledby="cleanup-title" aria-modal="true">
+        <div class="modal-head">
+          <h2 id="cleanup-title">Clean node_modules</h2>
+          <button class="icon-btn" data-close aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div class="modal-body cleanup-body">
+          <div class="cleanup-folder-row">
+            <button id="cleanup-choose" class="secondary-btn" type="button">Choose folder…</button>
+            <div id="cleanup-folder" class="cleanup-folder" title="">No folder selected</div>
+          </div>
+
+          <div id="cleanup-results" class="cleanup-results" hidden>
+            <div class="cleanup-list-head">
+              <label class="cleanup-master">
+                <input type="checkbox" id="cleanup-select-all">
+                <span id="cleanup-summary">—</span>
+              </label>
+              <button id="cleanup-rescan" class="link-btn" type="button">Rescan</button>
+            </div>
+            <div id="cleanup-list" class="cleanup-list"></div>
+            <div class="cleanup-hint">Tip: click a row to toggle, Shift+click to select a range.</div>
+          </div>
+
+          <div id="cleanup-empty" class="cleanup-empty" hidden>No node_modules folders found in the selected location.</div>
+          <div id="cleanup-error" class="cleanup-error" hidden></div>
+
+          <label class="cleanup-option">
+            <input type="checkbox" id="cleanup-recycle" checked>
+            <span class="cleanup-option-text">
+              <span class="cleanup-option-title">Move to Recycle Bin</span>
+              <span class="cleanup-option-desc">Allows undo from Windows. Disk space is reclaimed only after emptying the bin.</span>
+            </span>
+          </label>
+        </div>
+
+        <div class="modal-foot cleanup-foot">
+          <span id="cleanup-status" class="status"></span>
+          <button id="cleanup-delete" class="danger" type="button" disabled>Delete</button>
         </div>
       </div>
     </div>
