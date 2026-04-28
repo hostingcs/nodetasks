@@ -458,6 +458,536 @@ function wireSettingsModal() {
   });
 }
 
+// ============ node_modules cleanup ============
+
+const CLEANUP_DELETE_BATCH = 50;
+
+const cleanupState = {
+  root: '',
+  results: [],
+  selected: new Set(),
+  deletedPaths: new Set(),
+  lastClickedIdx: -1,
+  useRecycle: true,
+  busy: false,
+};
+
+function psQuote(s) {
+  return String(s).replace(/'/g, "''");
+}
+
+function normalizeWinPath(p) {
+  if (!p) return '';
+  return String(p).replace(/\//g, '\\').replace(/\\+$/, '');
+}
+
+function validateCleanupRoot(p) {
+  if (!p) return 'No folder selected.';
+  const norm = normalizeWinPath(p);
+  if (!norm) return 'No folder selected.';
+  // Drive root, e.g. "C:", "C:\"
+  if (/^[A-Za-z]:?\\?$/.test(norm)) {
+    return 'Refusing to scan a drive root. Pick a specific folder.';
+  }
+  // UNC share root, e.g. "\\server\share"
+  if (/^\\\\[^\\]+\\[^\\]+\\?$/.test(norm)) {
+    return 'Refusing to scan a network share root. Pick a subfolder.';
+  }
+  const upper = norm.toUpperCase();
+  const forbidden = [
+    /^[A-Z]:\\WINDOWS(\\|$)/,
+    /^[A-Z]:\\PROGRAM FILES( \(X86\))?(\\|$)/,
+    /^[A-Z]:\\PROGRAMDATA(\\|$)/,
+    /^[A-Z]:\\\$RECYCLE\.BIN(\\|$)/,
+    /^[A-Z]:\\SYSTEM VOLUME INFORMATION(\\|$)/,
+    /^[A-Z]:\\BOOT(\\|$)/,
+    /^[A-Z]:\\RECOVERY(\\|$)/,
+  ];
+  for (const re of forbidden) {
+    if (re.test(upper)) return 'Refusing to scan a system folder.';
+  }
+  // Reject the user profile root itself, but allow subfolders
+  const profileRoot = /^([A-Z]:\\USERS\\[^\\]+)\\?$/.exec(upper);
+  if (profileRoot) return 'Pick a specific folder under your profile.';
+  return null;
+}
+
+function buildFindScript(rootPath) {
+  const safe = psQuote(rootPath);
+  return `
+$ErrorActionPreference = 'SilentlyContinue'
+$root = '${safe}'
+if (-not (Test-Path -LiteralPath $root)) { '[]'; exit }
+
+$results = New-Object System.Collections.Generic.List[object]
+$stack = New-Object System.Collections.Generic.Stack[string]
+$stack.Push($root)
+
+while ($stack.Count -gt 0) {
+  $current = $stack.Pop()
+  try {
+    $items = Get-ChildItem -LiteralPath $current -Directory -Force -ErrorAction SilentlyContinue
+  } catch { continue }
+  foreach ($it in $items) {
+    if ($it.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+    if ($it.Name -ieq 'node_modules') {
+      $size = 0L
+      try {
+        $di = New-Object System.IO.DirectoryInfo $it.FullName
+        foreach ($f in $di.EnumerateFiles('*', [System.IO.SearchOption]::AllDirectories)) {
+          $size += $f.Length
+        }
+      } catch { $size = 0L }
+      $results.Add([pscustomobject]@{ Path = $it.FullName; Size = [int64]$size })
+    } else {
+      $stack.Push($it.FullName)
+    }
+  }
+}
+
+if ($results.Count -eq 0) { '[]' }
+else { ConvertTo-Json -InputObject $results.ToArray() -Compress -Depth 3 }
+`.trim();
+}
+
+function buildDeleteScript(paths, useRecycle) {
+  const list = paths.map((p) => `'${psQuote(p)}'`).join(',');
+  const mode = useRecycle ? 'true' : 'false';
+  return `
+$ErrorActionPreference = 'SilentlyContinue'
+$useRecycle = $${mode}
+$paths = @(${list})
+$deleted = @()
+$failed = @()
+if ($useRecycle) { Add-Type -AssemblyName Microsoft.VisualBasic }
+foreach ($p in $paths) {
+  if (-not (Test-Path -LiteralPath $p)) { $deleted += $p; continue }
+  $ok = $false
+  if ($useRecycle) {
+    try {
+      [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory(
+        $p,
+        [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
+        [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin,
+        [Microsoft.VisualBasic.FileIO.UICancelOption]::ThrowException)
+      $ok = $true
+    } catch {}
+  } else {
+    try {
+      Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop
+      $ok = $true
+    } catch {
+      $tmp = Join-Path $env:TEMP ('nt_' + [guid]::NewGuid().ToString('N'))
+      try {
+        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+        & robocopy.exe $tmp $p /MIR /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
+        Remove-Item -LiteralPath $tmp -Force -Recurse -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue
+      } catch {}
+      if (-not (Test-Path -LiteralPath $p)) { $ok = $true }
+    }
+  }
+  if ($ok) { $deleted += $p } else { $failed += $p }
+}
+ConvertTo-Json -InputObject ([pscustomobject]@{ Deleted = @($deleted); Failed = @($failed) }) -Compress -Depth 3
+`.trim();
+}
+
+async function runFindNodeModules(rootPath) {
+  const script = buildFindScript(rootPath);
+  const r = await Neutralino.os.execCommand(psCommand(script));
+  const raw = (r.stdOut || '').trim();
+  if (!raw) return [];
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    console.error('cleanup scan parse failed', e, raw);
+    throw new Error('Scan failed: could not parse results.');
+  }
+  if (!Array.isArray(data)) data = [data];
+  return data
+    .filter((d) => d && typeof d.Path === 'string')
+    .map((d) => ({ path: d.Path, size: Number(d.Size) || 0 }));
+}
+
+async function runDeleteBatch(paths, useRecycle) {
+  const script = buildDeleteScript(paths, useRecycle);
+  const r = await Neutralino.os.execCommand(psCommand(script));
+  const raw = (r.stdOut || '').trim();
+  if (!raw) return { deleted: [], failed: paths.slice() };
+  try {
+    const j = JSON.parse(raw);
+    return {
+      deleted: Array.isArray(j.Deleted) ? j.Deleted : (j.Deleted ? [j.Deleted] : []),
+      failed: Array.isArray(j.Failed) ? j.Failed : (j.Failed ? [j.Failed] : []),
+    };
+  } catch (e) {
+    console.error('cleanup delete parse failed', e, raw);
+    return { deleted: [], failed: paths.slice() };
+  }
+}
+
+function relativeFromRoot(full, root) {
+  const f = normalizeWinPath(full);
+  const r = normalizeWinPath(root);
+  if (r && f.toLowerCase().startsWith(r.toLowerCase() + '\\')) {
+    return f.slice(r.length + 1);
+  }
+  return f;
+}
+
+function setCleanupError(msg) {
+  const el = document.getElementById('cleanup-error');
+  if (!el) return;
+  if (!msg) {
+    el.hidden = true;
+    el.textContent = '';
+  } else {
+    el.hidden = false;
+    el.textContent = msg;
+  }
+}
+
+function setCleanupStatus(msg) {
+  const el = document.getElementById('cleanup-status');
+  if (el) el.textContent = msg || '';
+}
+
+function setCleanupBusy(busy) {
+  cleanupState.busy = busy;
+  const ids = ['cleanup-choose', 'cleanup-rescan', 'cleanup-delete', 'cleanup-select-all', 'cleanup-recycle'];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = busy;
+  }
+  document.querySelectorAll('.cleanup-row-delete').forEach((b) => { b.disabled = busy; });
+  if (!busy) updateCleanupDeleteBtn();
+}
+
+function getSelectedCleanupPaths() {
+  return cleanupState.results
+    .map((r) => r.path)
+    .filter((p) => cleanupState.selected.has(p) && !cleanupState.deletedPaths.has(p));
+}
+
+function getActiveResults() {
+  return cleanupState.results.filter((r) => !cleanupState.deletedPaths.has(r.path));
+}
+
+function updateCleanupDeleteBtn() {
+  const btn = document.getElementById('cleanup-delete');
+  if (!btn) return;
+  if (cleanupState.busy) { btn.disabled = true; return; }
+  const selected = getSelectedCleanupPaths();
+  let total = 0;
+  for (const p of selected) {
+    const item = cleanupState.results.find((x) => x.path === p);
+    if (item) total += item.size;
+  }
+  btn.disabled = selected.length === 0;
+  const verb = cleanupState.useRecycle ? 'Recycle' : 'Delete';
+  btn.textContent = selected.length === 0
+    ? verb
+    : `${verb} ${selected.length} folder${selected.length === 1 ? '' : 's'} (${formatBytes(total)})`;
+}
+
+function updateMasterCheckbox() {
+  const cb = document.getElementById('cleanup-select-all');
+  if (!cb) return;
+  const active = getActiveResults();
+  if (active.length === 0) {
+    cb.checked = false;
+    cb.indeterminate = false;
+    cb.disabled = true;
+    return;
+  }
+  cb.disabled = cleanupState.busy;
+  const selectedCount = active.filter((r) => cleanupState.selected.has(r.path)).length;
+  cb.checked = selectedCount === active.length;
+  cb.indeterminate = selectedCount > 0 && selectedCount < active.length;
+}
+
+function setSelectionForRange(startIdx, endIdx, value) {
+  if (startIdx < 0 || endIdx < 0) return;
+  const [a, b] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+  for (let i = a; i <= b; i++) {
+    const r = cleanupState.results[i];
+    if (!r || cleanupState.deletedPaths.has(r.path)) continue;
+    if (value) cleanupState.selected.add(r.path);
+    else cleanupState.selected.delete(r.path);
+  }
+}
+
+function renderCleanupResults() {
+  const results = cleanupState.results;
+  const root = cleanupState.root;
+  const wrap = document.getElementById('cleanup-results');
+  const empty = document.getElementById('cleanup-empty');
+  const list = document.getElementById('cleanup-list');
+  const summary = document.getElementById('cleanup-summary');
+  if (!wrap || !empty || !list || !summary) return;
+
+  if (results.length === 0) {
+    wrap.hidden = true;
+    empty.hidden = false;
+    updateCleanupDeleteBtn();
+    updateMasterCheckbox();
+    return;
+  }
+  empty.hidden = true;
+  wrap.hidden = false;
+
+  const active = getActiveResults();
+  const selectedActive = active.filter((r) => cleanupState.selected.has(r.path));
+  const selectedSize = selectedActive.reduce((s, r) => s + r.size, 0);
+  const totalSize = active.reduce((s, r) => s + r.size, 0);
+  summary.textContent = active.length === 0
+    ? 'All cleared'
+    : `${selectedActive.length} of ${active.length} selected • ${formatBytes(selectedSize)} of ${formatBytes(totalSize)}`;
+
+  list.innerHTML = results.map((r, i) => {
+    const rel = relativeFromRoot(r.path, root) || r.path;
+    const isDeleted = cleanupState.deletedPaths.has(r.path);
+    const isSelected = cleanupState.selected.has(r.path) && !isDeleted;
+    return `
+      <div class="cleanup-row${isDeleted ? ' deleted' : ''}${isSelected ? ' selected' : ''}" data-path="${escapeHtml(r.path)}" data-idx="${i}">
+        <input type="checkbox" tabindex="-1" ${isDeleted ? 'disabled' : ''} ${isSelected ? 'checked' : ''}>
+        <span class="cleanup-path" title="${escapeHtml(r.path)}">${escapeHtml(rel)}</span>
+        <span class="cleanup-size">${formatBytes(r.size)}</span>
+        <button class="cleanup-row-delete" type="button" data-path="${escapeHtml(r.path)}" title="Delete this folder" aria-label="Delete this folder" ${isDeleted || cleanupState.busy ? 'disabled' : ''}>×</button>
+      </div>
+    `;
+  }).join('');
+
+  updateMasterCheckbox();
+  updateCleanupDeleteBtn();
+}
+
+function setCleanupFolder(path) {
+  cleanupState.root = path || '';
+  cleanupState.results = [];
+  cleanupState.selected.clear();
+  cleanupState.deletedPaths.clear();
+  cleanupState.lastClickedIdx = -1;
+  const el = document.getElementById('cleanup-folder');
+  if (el) {
+    if (path) {
+      el.textContent = path;
+      el.title = path;
+      el.classList.remove('empty');
+    } else {
+      el.textContent = 'No folder selected';
+      el.title = '';
+      el.classList.add('empty');
+    }
+  }
+  document.getElementById('cleanup-results').hidden = true;
+  document.getElementById('cleanup-empty').hidden = true;
+  setCleanupError('');
+  setCleanupStatus('');
+  updateCleanupDeleteBtn();
+}
+
+async function chooseCleanupFolder() {
+  if (cleanupState.busy) return;
+  let chosen;
+  try {
+    chosen = await Neutralino.os.showFolderDialog('Select folder to clean');
+  } catch (e) {
+    console.error('showFolderDialog failed', e);
+    return;
+  }
+  if (!chosen) return;
+  const err = validateCleanupRoot(chosen);
+  if (err) {
+    setCleanupFolder('');
+    setCleanupError(err);
+    return;
+  }
+  setCleanupFolder(chosen);
+  await runCleanupScan();
+}
+
+async function runCleanupScan() {
+  if (!cleanupState.root || cleanupState.busy) return;
+  const err = validateCleanupRoot(cleanupState.root);
+  if (err) {
+    setCleanupError(err);
+    return;
+  }
+  setCleanupError('');
+  setCleanupBusy(true);
+  setCleanupStatus('Scanning…');
+  try {
+    const results = await runFindNodeModules(cleanupState.root);
+    results.sort((a, b) => b.size - a.size);
+    cleanupState.results = results;
+    cleanupState.deletedPaths.clear();
+    cleanupState.selected = new Set(results.map((r) => r.path));
+    cleanupState.lastClickedIdx = -1;
+    renderCleanupResults();
+    setCleanupStatus(results.length === 0 ? 'No node_modules found.' : '');
+  } catch (e) {
+    console.error('cleanup scan failed', e);
+    setCleanupError('Scan failed. Check folder permissions and try again.');
+  } finally {
+    setCleanupBusy(false);
+  }
+}
+
+async function runCleanupDeleteFor(paths) {
+  if (cleanupState.busy || !paths || paths.length === 0) return;
+  const useRecycle = !!cleanupState.useRecycle;
+  const verb = useRecycle ? 'Moved to Recycle Bin' : 'Deleted';
+  const verbProg = useRecycle ? 'Recycling' : 'Deleting';
+  setCleanupError('');
+  setCleanupBusy(true);
+  let deleted = 0;
+  let failed = 0;
+  for (let i = 0; i < paths.length; i += CLEANUP_DELETE_BATCH) {
+    const batch = paths.slice(i, i + CLEANUP_DELETE_BATCH);
+    setCleanupStatus(`${verbProg} ${Math.min(i + batch.length, paths.length)}/${paths.length}…`);
+    try {
+      const r = await runDeleteBatch(batch, useRecycle);
+      for (const p of r.deleted) {
+        cleanupState.deletedPaths.add(p);
+        cleanupState.selected.delete(p);
+      }
+      deleted += r.deleted.length;
+      failed += r.failed.length;
+    } catch (e) {
+      console.error('cleanup delete batch failed', e);
+      failed += batch.length;
+    }
+    renderCleanupResults();
+  }
+  setCleanupBusy(false);
+  if (failed > 0) {
+    const hint = useRecycle ? ' Try with "Move to Recycle Bin" off (some items may be too large for the bin).' : '';
+    setCleanupError(`${failed} folder${failed === 1 ? '' : 's'} could not be removed.${hint}`);
+    setCleanupStatus(`${verb} ${deleted}, failed ${failed}.`);
+  } else {
+    setCleanupStatus(`${verb} ${deleted} folder${deleted === 1 ? '' : 's'}.`);
+  }
+}
+
+async function runCleanupDelete() {
+  await runCleanupDeleteFor(getSelectedCleanupPaths());
+}
+
+function openCleanup() {
+  const modal = document.getElementById('cleanup-modal');
+  if (!modal) return;
+  modal.hidden = false;
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeCleanup() {
+  const modal = document.getElementById('cleanup-modal');
+  if (!modal) return;
+  modal.hidden = true;
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function onCleanupListMouseDown(e) {
+  // Suppress text selection on shift+click
+  if (e.shiftKey && e.target && e.target.closest && e.target.closest('.cleanup-row')) {
+    e.preventDefault();
+  }
+}
+
+function onCleanupListClick(e) {
+  if (cleanupState.busy) return;
+  const target = /** @type {HTMLElement} */ (e.target);
+  if (!target) return;
+
+  // Per-row delete (×)
+  const delBtn = target.closest('.cleanup-row-delete');
+  if (delBtn && !delBtn.disabled) {
+    e.preventDefault();
+    e.stopPropagation();
+    const path = delBtn.getAttribute('data-path');
+    if (path && !cleanupState.deletedPaths.has(path)) {
+      runCleanupDeleteFor([path]);
+    }
+    return;
+  }
+
+  const row = target.closest('.cleanup-row');
+  if (!row) return;
+  const path = row.getAttribute('data-path');
+  const idx = parseInt(row.getAttribute('data-idx') || '-1', 10);
+  if (!path || idx < 0 || cleanupState.deletedPaths.has(path)) return;
+
+  e.preventDefault();
+
+  if (e.shiftKey && cleanupState.lastClickedIdx >= 0 && cleanupState.lastClickedIdx !== idx) {
+    const wasSelected = cleanupState.selected.has(path);
+    setSelectionForRange(cleanupState.lastClickedIdx, idx, !wasSelected);
+  } else {
+    if (cleanupState.selected.has(path)) cleanupState.selected.delete(path);
+    else cleanupState.selected.add(path);
+  }
+  cleanupState.lastClickedIdx = idx;
+  renderCleanupResults();
+}
+
+function onCleanupSelectAll() {
+  if (cleanupState.busy) return;
+  const active = getActiveResults();
+  if (active.length === 0) return;
+  const allSelected = active.every((r) => cleanupState.selected.has(r.path));
+  if (allSelected) {
+    for (const r of active) cleanupState.selected.delete(r.path);
+  } else {
+    for (const r of active) cleanupState.selected.add(r.path);
+  }
+  renderCleanupResults();
+}
+
+function onCleanupRecycleToggle(e) {
+  cleanupState.useRecycle = !!e.target.checked;
+  updateCleanupDeleteBtn();
+}
+
+function wireCleanupModal() {
+  const modal = document.getElementById('cleanup-modal');
+  const openBtn = document.getElementById('open-cleanup');
+  const chooseBtn = document.getElementById('cleanup-choose');
+  const rescanBtn = document.getElementById('cleanup-rescan');
+  const deleteBtn = document.getElementById('cleanup-delete');
+  const masterCb = document.getElementById('cleanup-select-all');
+  const recycleCb = document.getElementById('cleanup-recycle');
+  const list = document.getElementById('cleanup-list');
+
+  if (openBtn) openBtn.addEventListener('click', openCleanup);
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      const el = /** @type {HTMLElement} */ (e.target);
+      if (cleanupState.busy) return;
+      if (el && el.closest && el.closest('[data-close]')) closeCleanup();
+    });
+  }
+  if (chooseBtn) chooseBtn.addEventListener('click', chooseCleanupFolder);
+  if (rescanBtn) rescanBtn.addEventListener('click', runCleanupScan);
+  if (deleteBtn) deleteBtn.addEventListener('click', runCleanupDelete);
+  if (masterCb) masterCb.addEventListener('change', onCleanupSelectAll);
+  if (recycleCb) {
+    cleanupState.useRecycle = !!recycleCb.checked;
+    recycleCb.addEventListener('change', onCleanupRecycleToggle);
+  }
+  if (list) {
+    list.addEventListener('mousedown', onCleanupListMouseDown);
+    list.addEventListener('click', onCleanupListClick);
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !cleanupState.busy) closeCleanup();
+  });
+  setCleanupFolder('');
+}
+
 function compareVersions(a, b) {
   const parse = s => String(s || '').split('.').map(n => parseInt(n, 10) || 0);
   const [a1, a2, a3] = parse(a);
@@ -571,6 +1101,7 @@ async function start() {
 
   document.getElementById('kill-all').addEventListener('click', killAll);
   wireSettingsModal();
+  wireCleanupModal();
   wireContextMenu();
 
   autostartEnabled = await readAutostartState();
